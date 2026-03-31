@@ -71,6 +71,26 @@ def get_bq_client() -> bigquery.Client:
     return _bq_client
 
 
+def _percent_above_baseline(baseline_mean: object, current_cpc: object) -> Optional[float]:
+    """Spike % vs baseline — computed in API so BigQuery never references missing columns."""
+    if baseline_mean is None or current_cpc is None:
+        return None
+    try:
+        b = float(baseline_mean)
+        c = float(current_cpc)
+        if b > 0:
+            return round((c - b) / b * 100, 1)
+    except (TypeError, ValueError):
+        pass
+    return None
+
+
+@app.get("/version")
+async def version():
+    """Bump when changing /alerts query — use to confirm Railway deployed latest."""
+    return {"api": "cpc-guardrail", "build": "2026-03-31-pct-in-python"}
+
+
 @app.get("/alerts")
 async def get_red_zone_alerts(limit: int = Query(default=10, ge=1, le=100)):
     """Top CPC anomalies — the Red Zone (CPC_Anomaly_Alerts)."""
@@ -85,8 +105,8 @@ async def get_red_zone_alerts(limit: int = Query(default=10, ge=1, le=100)):
             ),
         )
 
-    # Compute spike % in SQL — do not SELECT a stored percent_above_baseline column
-    # (many tables never had it). Alias avoids any name clash with missing columns.
+    # Spike % is computed in Python — BigQuery must never see the name percent_above_baseline
+    # (older deployed images / schema drift caused invalidQuery on that identifier).
     query = f"""
         SELECT
             campaign_name,
@@ -96,14 +116,6 @@ async def get_red_zone_alerts(limit: int = Query(default=10, ge=1, le=100)):
             run_timestamp AS `timestamp`,
             cost,
             clicks,
-            CASE
-                WHEN baseline_mean IS NOT NULL AND baseline_mean > 0
-                THEN ROUND(
-                    SAFE_DIVIDE(current_cpc - baseline_mean, baseline_mean) * 100,
-                    1
-                )
-                ELSE NULL
-            END AS pct_spike_vs_baseline,
             baseline_mean,
             stat_threshold,
             max_allowable_cpc,
@@ -120,8 +132,9 @@ async def get_red_zone_alerts(limit: int = Query(default=10, ge=1, le=100)):
         out: list[dict] = []
         for row in rows:
             d = dict(row)
-            if "pct_spike_vs_baseline" in d:
-                d["percent_above_baseline"] = d.pop("pct_spike_vs_baseline")
+            d["percent_above_baseline"] = _percent_above_baseline(
+                d.get("baseline_mean"), d.get("current_cpc")
+            )
             out.append(d)
         return out
     except Exception as e:
