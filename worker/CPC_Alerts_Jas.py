@@ -274,6 +274,7 @@ def run_pipeline() -> None:
                     else 0
                 )
 
+                # Row shape must match BigQuery table schema (GA_Avanish.CPC_Anomaly_Alerts)
                 alert_record = {
                     "run_timestamp": datetime.now(timezone.utc).isoformat(),
                     "alert_date": date_str,
@@ -283,18 +284,14 @@ def run_pipeline() -> None:
                     "ad_group_id": r["ad_group_id"],
                     "ad_group_name": r["ad_group_name"],
                     "current_cpc": round(current_cpc, 4),
-                    "baseline_mean": round(rolling_mean, 4),
-                    "baseline_std": round(rolling_std, 4),
-                    "stat_threshold": round(stat_threshold, 4),
-                    "max_allowable_cpc": round(max_allowable_cpc, 4),
-                    "dynamic_conv_rate": round(conv_rate, 4),
-                    "percent_above_baseline": round(percent_above, 1),
+                    "threshold_used": round(stat_threshold, 4),
                     "cost": round(cost, 2),
                     "clicks": clicks,
                     "impressions": r["impressions"],
                     "notes": (
                         f"CPC > {CPC_ANOMALY_MULTIPLIER}×(mean+std) AND exceeds "
-                        "dynamic Max Allowable CPC"
+                        f"dynamic max £{max_allowable_cpc:.4f}; "
+                        f"spike vs baseline {percent_above:.1f}%"
                     ),
                 }
                 alerts.append(alert_record)

@@ -2,7 +2,10 @@
 CPC Guardrail API — reads anomaly alerts from BigQuery table
   printerpix-general.GA_Avanish.CPC_Anomaly_Alerts
 
-Configure via BIGQUERY_TABLE (full id) or PROJECT_ID + TABLE (dataset.table).
+Table schema (see BigQuery console): run_timestamp, alert_date, alert_hour,
+campaign_id, campaign_name, ad_group_id, ad_group_name, current_cpc,
+threshold_used, cost, clicks, impressions, notes
+(no baseline_mean / percent_above_baseline columns — derived in API).
 """
 
 from __future__ import annotations
@@ -18,14 +21,11 @@ app = FastAPI(title="Printerpix CPC Guardrail API")
 
 # --- BigQuery table: printerpix-general.GA_Avanish.CPC_Anomaly_Alerts ---
 PROJECT_ID = os.getenv("PROJECT_ID", "").strip()
-# dataset.table, e.g. GA_Avanish.CPC_Anomaly_Alerts
 TABLE = os.getenv("TABLE", "").strip()
-# Optional: full "project.dataset.table" — overrides PROJECT_ID + TABLE if set
 BIGQUERY_TABLE = os.getenv("BIGQUERY_TABLE", "").strip()
 
 
 def resolve_full_table_id() -> Optional[str]:
-    """Return project.dataset.table for CPC_Anomaly_Alerts."""
     if BIGQUERY_TABLE:
         return BIGQUERY_TABLE
     if PROJECT_ID and TABLE:
@@ -33,7 +33,6 @@ def resolve_full_table_id() -> Optional[str]:
     return None
 
 
-# CORS — localhost + Railway/Vercel URLs from env
 def _cors_origins() -> list[str]:
     origins = ["http://localhost:3000"]
     raw = os.getenv("FRONTEND_URL", "")
@@ -47,12 +46,11 @@ def _cors_origins() -> list[str]:
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_cors_origins(),
-    allow_origin_regex=r"https://.*\.vercel\.app",
+    allow_origin_regex=r"https://.*\.vercel.app",
     allow_methods=["GET"],
     allow_headers=["*"],
 )
 
-# Load GCP credentials from Railway / local env (JSON string)
 creds_json = os.getenv("GOOGLE_CREDENTIALS")
 if creds_json:
     with open("/tmp/credentials.json", "w", encoding="utf-8") as f:
@@ -71,15 +69,15 @@ def get_bq_client() -> bigquery.Client:
     return _bq_client
 
 
-def _percent_above_baseline(baseline_mean: object, current_cpc: object) -> Optional[float]:
-    """Spike % vs baseline — computed in API so BigQuery never references missing columns."""
-    if baseline_mean is None or current_cpc is None:
+def _spike_pct_vs_threshold(current_cpc: object, threshold_used: object) -> Optional[float]:
+    """% above threshold_used (UI field still named percent_above_baseline)."""
+    if current_cpc is None or threshold_used is None:
         return None
     try:
-        b = float(baseline_mean)
         c = float(current_cpc)
-        if b > 0:
-            return round((c - b) / b * 100, 1)
+        t = float(threshold_used)
+        if t > 0:
+            return round((c - t) / t * 100, 1)
     except (TypeError, ValueError):
         pass
     return None
@@ -87,25 +85,27 @@ def _percent_above_baseline(baseline_mean: object, current_cpc: object) -> Optio
 
 @app.get("/version")
 async def version():
-    """Bump when changing /alerts query — use to confirm Railway deployed latest."""
-    return {"api": "cpc-guardrail", "build": "2026-03-31-select-star-v4"}
+    return {"api": "cpc-guardrail", "build": "2026-03-31-bq-schema-v5"}
 
 
 def _normalize_alert_row(d: dict) -> dict:
-    """Map BQ row keys to API / frontend shape; spike % always from baseline + CPC."""
-    if "alert_reason" not in d and "notes" in d:
-        d["alert_reason"] = d["notes"]
-    if "timestamp" not in d and "run_timestamp" in d:
-        d["timestamp"] = d["run_timestamp"]
-    d["percent_above_baseline"] = _percent_above_baseline(
-        d.get("baseline_mean"), d.get("current_cpc")
+    """Map BigQuery row → frontend Alert shape."""
+    d = dict(d)
+    d["alert_reason"] = d.get("notes")
+    d["timestamp"] = d.get("run_timestamp")
+    # Table column is threshold_used; dashboard expects stat_threshold
+    d["stat_threshold"] = d.get("threshold_used")
+    d["baseline_mean"] = None
+    d["max_allowable_cpc"] = None
+    d["dynamic_conv_rate"] = None
+    d["percent_above_baseline"] = _spike_pct_vs_threshold(
+        d.get("current_cpc"), d.get("threshold_used")
     )
     return d
 
 
 @app.get("/alerts")
 async def get_red_zone_alerts(limit: int = Query(default=10, ge=1, le=100)):
-    """Top CPC anomalies — the Red Zone (CPC_Anomaly_Alerts)."""
     full_table = resolve_full_table_id()
     if not full_table:
         raise HTTPException(
@@ -113,14 +113,27 @@ async def get_red_zone_alerts(limit: int = Query(default=10, ge=1, le=100)):
             detail=(
                 "BigQuery table not configured. Set BIGQUERY_TABLE="
                 "printerpix-general.GA_Avanish.CPC_Anomaly_Alerts "
-                "or PROJECT_ID + TABLE (e.g. TABLE=GA_Avanish.CPC_Anomaly_Alerts)."
+                "or PROJECT_ID + TABLE."
             ),
         )
 
-    # SELECT * — the SQL string must not contain the identifier "percent_above_baseline".
-    # That name caused invalidQuery for some schemas/views; * returns all existing columns.
+    # Columns must match physical table (see BigQuery Schema tab)
     query = f"""
-        SELECT * FROM `{full_table}`
+        SELECT
+            run_timestamp,
+            alert_date,
+            alert_hour,
+            campaign_id,
+            campaign_name,
+            ad_group_id,
+            ad_group_name,
+            current_cpc,
+            threshold_used,
+            cost,
+            clicks,
+            impressions,
+            notes
+        FROM `{full_table}`
         ORDER BY run_timestamp DESC, current_cpc DESC
         LIMIT @limit
     """
@@ -131,25 +144,16 @@ async def get_red_zone_alerts(limit: int = Query(default=10, ge=1, le=100)):
         rows = list(get_bq_client().query(query, job_config=job_config))
         return [_normalize_alert_row(dict(row)) for row in rows]
     except Exception as e:
-        err = str(e)
-        hint = ""
-        if "percent_above_baseline" in err:
-            hint = (
-                " This often means the BigQuery resource is a VIEW with a broken SQL "
-                "definition referencing percent_above_baseline. Fix or replace the VIEW "
-                "in BigQuery, or point BIGQUERY_TABLE at the physical table the worker inserts into."
-            )
-        raise HTTPException(status_code=500, detail=err + hint) from e
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @app.get("/trends")
 async def get_cpc_trends():
-    """24-hour CPC trend data for charts (same BigQuery table)."""
     full_table = resolve_full_table_id()
     if not full_table:
         raise HTTPException(
             status_code=503,
-            detail="BigQuery table not configured. See /alerts error detail.",
+            detail="BigQuery table not configured.",
         )
 
     query = f"""
