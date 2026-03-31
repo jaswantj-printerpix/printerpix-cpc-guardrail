@@ -80,7 +80,20 @@ export default function Dashboard() {
       ]);
 
       if (!alertsRes.ok || !trendsRes.ok) {
-        throw new Error("API request failed");
+        const parts: string[] = [];
+        if (!alertsRes.ok) {
+          const body = await alertsRes.text();
+          parts.push(
+            `/alerts → ${alertsRes.status} ${body.slice(0, 280)}`
+          );
+        }
+        if (!trendsRes.ok) {
+          const body = await trendsRes.text();
+          parts.push(
+            `/trends → ${trendsRes.status} ${body.slice(0, 280)}`
+          );
+        }
+        throw new Error(parts.join(" | "));
       }
 
       const alertsData = await alertsRes.json();
