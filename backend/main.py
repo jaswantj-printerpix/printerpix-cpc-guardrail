@@ -85,6 +85,8 @@ async def get_red_zone_alerts(limit: int = Query(default=10, ge=1, le=100)):
             ),
         )
 
+    # percent_above_baseline is computed here — some BQ table schemas omit this column
+    # even when the worker sends it (older tables / schema drift).
     query = f"""
         SELECT
             campaign_name,
@@ -94,7 +96,14 @@ async def get_red_zone_alerts(limit: int = Query(default=10, ge=1, le=100)):
             run_timestamp AS `timestamp`,
             cost,
             clicks,
-            percent_above_baseline,
+            CASE
+                WHEN baseline_mean IS NOT NULL AND baseline_mean > 0
+                THEN ROUND(
+                    SAFE_DIVIDE(current_cpc - baseline_mean, baseline_mean) * 100,
+                    1
+                )
+                ELSE NULL
+            END AS percent_above_baseline,
             baseline_mean,
             stat_threshold,
             max_allowable_cpc,
