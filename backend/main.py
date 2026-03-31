@@ -85,8 +85,8 @@ async def get_red_zone_alerts(limit: int = Query(default=10, ge=1, le=100)):
             ),
         )
 
-    # percent_above_baseline is computed here — some BQ table schemas omit this column
-    # even when the worker sends it (older tables / schema drift).
+    # Compute spike % in SQL — do not SELECT a stored percent_above_baseline column
+    # (many tables never had it). Alias avoids any name clash with missing columns.
     query = f"""
         SELECT
             campaign_name,
@@ -103,7 +103,7 @@ async def get_red_zone_alerts(limit: int = Query(default=10, ge=1, le=100)):
                     1
                 )
                 ELSE NULL
-            END AS percent_above_baseline,
+            END AS pct_spike_vs_baseline,
             baseline_mean,
             stat_threshold,
             max_allowable_cpc,
@@ -117,7 +117,13 @@ async def get_red_zone_alerts(limit: int = Query(default=10, ge=1, le=100)):
     )
     try:
         rows = list(get_bq_client().query(query, job_config=job_config))
-        return [dict(row) for row in rows]
+        out: list[dict] = []
+        for row in rows:
+            d = dict(row)
+            if "pct_spike_vs_baseline" in d:
+                d["percent_above_baseline"] = d.pop("pct_spike_vs_baseline")
+            out.append(d)
+        return out
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
