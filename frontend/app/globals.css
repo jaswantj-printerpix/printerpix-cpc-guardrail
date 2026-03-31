@@ -1,1 +1,18 @@
 @import "tailwindcss";
+
+:root {
+  --pp-magenta: #c41e7a;
+  --pp-magenta-dark: #9b185f;
+  --alert-red: #c62828;
+  --kpi-blue: #1565c0;
+  --table-header: #bbdefb;
+  --filter-bg: #eceff1;
+  --card-bg: #f5f5f5;
+  --border-subtle: #e0e0e0;
+  --text-primary: #212121;
+  --text-muted: #757575;
+}
+
+body {
+  color: var(--text-primary);
+}

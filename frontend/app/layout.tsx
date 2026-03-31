@@ -1,9 +1,16 @@
 import type { Metadata } from "next";
+import { Roboto } from "next/font/google";
 import "./globals.css";
 
+const roboto = Roboto({
+  weight: ["400", "500", "700"],
+  subsets: ["latin"],
+  display: "swap",
+});
+
 export const metadata: Metadata = {
-  title: "CPC Guardrail Dashboard | Printerpix",
-  description: "Real-time CPC anomaly detection and monitoring",
+  title: "CPC Anomaly Alerts - Red Zone | Printerpix",
+  description: "CPC anomaly detection and red zone monitoring",
 };
 
 export default function RootLayout({
@@ -13,7 +20,9 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <body className="bg-gray-950 text-gray-100 min-h-screen antialiased">
+      <body
+        className={`${roboto.className} bg-white text-[#212121] min-h-screen antialiased`}
+      >
         {children}
       </body>
     </html>

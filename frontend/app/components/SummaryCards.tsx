@@ -5,60 +5,59 @@ import type { Alert } from "../page";
 export default function SummaryCards({ alerts }: { alerts: Alert[] }) {
   const totalAlerts = alerts.length;
 
-  const highestSpike = alerts.reduce(
-    (max, a) => Math.max(max, a.percent_above_baseline ?? 0),
+  const avgSpike =
+    alerts.length > 0
+      ? alerts.reduce((sum, a) => sum + (a.percent_above_baseline ?? 0), 0) /
+        alerts.length
+      : 0;
+
+  const totalMoneyBleeding = alerts.reduce(
+    (sum, a) => sum + (a.cost ?? 0),
     0
   );
 
-  const totalWastedSpend = alerts.reduce((sum, a) => sum + (a.cost ?? 0), 0);
-
-  const avgCpc =
-    alerts.length > 0
-      ? alerts.reduce((sum, a) => sum + (a.current_cpc ?? 0), 0) / alerts.length
-      : 0;
+  const campaignsAffected = new Set(
+    alerts.map((a) => a.campaign_name).filter(Boolean)
+  ).size;
 
   const cards = [
     {
-      label: "Active Alerts",
-      value: totalAlerts,
-      color: "text-red-400",
-      bg: "bg-red-950/40 border-red-900/50",
+      label: "Total Money Bleeding",
+      value: `£${totalMoneyBleeding.toFixed(2)}`,
+      labelClass: "text-[var(--alert-red)]",
     },
     {
-      label: "Highest CPC Spike",
-      value: `${highestSpike.toFixed(1)}%`,
-      sub: "above baseline",
-      color: "text-orange-400",
-      bg: "bg-orange-950/40 border-orange-900/50",
+      label: "Avg. CPC Spike %",
+      value: `${avgSpike.toFixed(2)}%`,
+      labelClass: "text-[var(--alert-red)]",
     },
     {
-      label: "Total Flagged Spend",
-      value: `$${totalWastedSpend.toFixed(2)}`,
-      color: "text-yellow-400",
-      bg: "bg-yellow-950/40 border-yellow-900/50",
+      label: "No. of Active Alerts",
+      value: String(totalAlerts),
+      labelClass: "text-[var(--kpi-blue)]",
     },
     {
-      label: "Avg Flagged CPC",
-      value: `$${avgCpc.toFixed(2)}`,
-      color: "text-blue-400",
-      bg: "bg-blue-950/40 border-blue-900/50",
+      label: "Campaigns Affected",
+      value: String(campaignsAffected),
+      labelClass: "text-[var(--kpi-blue)]",
     },
   ];
 
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+    <div className="grid grid-cols-2 gap-3 sm:gap-4">
       {cards.map((card) => (
         <div
           key={card.label}
-          className={`rounded-xl border p-5 ${card.bg}`}
+          className="rounded border border-[var(--border-subtle)] bg-[var(--card-bg)] px-4 py-3 sm:px-5 sm:py-4"
         >
-          <p className="text-sm text-gray-400">{card.label}</p>
-          <p className={`text-3xl font-bold mt-1 ${card.color}`}>
+          <p
+            className={`text-xs font-medium leading-tight sm:text-sm ${card.labelClass}`}
+          >
+            {card.label}
+          </p>
+          <p className="mt-1 text-2xl font-bold tracking-tight text-[#212121] sm:text-3xl">
             {card.value}
           </p>
-          {card.sub && (
-            <p className="text-xs text-gray-500 mt-1">{card.sub}</p>
-          )}
         </div>
       ))}
     </div>
