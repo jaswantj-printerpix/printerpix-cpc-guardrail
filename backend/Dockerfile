@@ -6,7 +6,8 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy the main app
+# Copy the main app (bump comment to invalidate Docker layer cache on Railway)
+# build: 2026-03-31-select-star-v4
 COPY main.py .
 
 # Run the FastAPI app

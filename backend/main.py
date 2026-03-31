@@ -88,7 +88,19 @@ def _percent_above_baseline(baseline_mean: object, current_cpc: object) -> Optio
 @app.get("/version")
 async def version():
     """Bump when changing /alerts query — use to confirm Railway deployed latest."""
-    return {"api": "cpc-guardrail", "build": "2026-03-31-pct-in-python"}
+    return {"api": "cpc-guardrail", "build": "2026-03-31-select-star-v4"}
+
+
+def _normalize_alert_row(d: dict) -> dict:
+    """Map BQ row keys to API / frontend shape; spike % always from baseline + CPC."""
+    if "alert_reason" not in d and "notes" in d:
+        d["alert_reason"] = d["notes"]
+    if "timestamp" not in d and "run_timestamp" in d:
+        d["timestamp"] = d["run_timestamp"]
+    d["percent_above_baseline"] = _percent_above_baseline(
+        d.get("baseline_mean"), d.get("current_cpc")
+    )
+    return d
 
 
 @app.get("/alerts")
@@ -105,22 +117,10 @@ async def get_red_zone_alerts(limit: int = Query(default=10, ge=1, le=100)):
             ),
         )
 
-    # Spike % is computed in Python — BigQuery must never see the name percent_above_baseline
-    # (older deployed images / schema drift caused invalidQuery on that identifier).
+    # SELECT * — the SQL string must not contain the identifier "percent_above_baseline".
+    # That name caused invalidQuery for some schemas/views; * returns all existing columns.
     query = f"""
-        SELECT
-            campaign_name,
-            ad_group_name,
-            current_cpc,
-            notes AS alert_reason,
-            run_timestamp AS `timestamp`,
-            cost,
-            clicks,
-            baseline_mean,
-            stat_threshold,
-            max_allowable_cpc,
-            dynamic_conv_rate
-        FROM `{full_table}`
+        SELECT * FROM `{full_table}`
         ORDER BY run_timestamp DESC, current_cpc DESC
         LIMIT @limit
     """
@@ -129,16 +129,17 @@ async def get_red_zone_alerts(limit: int = Query(default=10, ge=1, le=100)):
     )
     try:
         rows = list(get_bq_client().query(query, job_config=job_config))
-        out: list[dict] = []
-        for row in rows:
-            d = dict(row)
-            d["percent_above_baseline"] = _percent_above_baseline(
-                d.get("baseline_mean"), d.get("current_cpc")
-            )
-            out.append(d)
-        return out
+        return [_normalize_alert_row(dict(row)) for row in rows]
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e)) from e
+        err = str(e)
+        hint = ""
+        if "percent_above_baseline" in err:
+            hint = (
+                " This often means the BigQuery resource is a VIEW with a broken SQL "
+                "definition referencing percent_above_baseline. Fix or replace the VIEW "
+                "in BigQuery, or point BIGQUERY_TABLE at the physical table the worker inserts into."
+            )
+        raise HTTPException(status_code=500, detail=err + hint) from e
 
 
 @app.get("/trends")
