@@ -58,6 +58,34 @@ if creds_json:
 
 _bq_client: Optional[bigquery.Client] = None
 
+# /alerts BigQuery SELECT list — must stay in sync with table schema (no legacy column names).
+ALERTS_SELECT_COLUMNS: tuple[str, ...] = (
+    "run_timestamp",
+    "alert_date",
+    "alert_hour",
+    "campaign_id",
+    "campaign_name",
+    "ad_group_id",
+    "ad_group_name",
+    "current_cpc",
+    "threshold_used",
+    "cost",
+    "clicks",
+    "impressions",
+    "notes",
+)
+
+
+def _alerts_sql(full_table: str) -> str:
+    cols = ",\n            ".join(ALERTS_SELECT_COLUMNS)
+    return f"""
+        SELECT
+            {cols}
+        FROM `{full_table}`
+        ORDER BY run_timestamp DESC, current_cpc DESC
+        LIMIT @limit
+    """
+
 
 def get_bq_client() -> bigquery.Client:
     global _bq_client
@@ -70,7 +98,21 @@ def get_bq_client() -> bigquery.Client:
 
 @app.get("/version")
 async def version():
-    return {"api": "cpc-guardrail", "build": "2026-03-31-no-pct-field-v6"}
+    """
+    Use this to verify Railway/Vercel are hitting the API you think.
+    If `alerts_sql_includes_percent_above_baseline` is true, you are NOT on current code.
+    """
+    probe = _alerts_sql("project.dataset.table")
+    return {
+        "api": "cpc-guardrail",
+        "build": "2026-03-31-diagnostic-v7",
+        "git_commit": os.getenv("RAILWAY_GIT_COMMIT_SHA", ""),
+        "git_branch": os.getenv("RAILWAY_GIT_BRANCH", ""),
+        "resolved_bq_table": resolve_full_table_id(),
+        "alerts_select_columns": list(ALERTS_SELECT_COLUMNS),
+        "alerts_sql_includes_percent_above_baseline": "percent_above_baseline"
+        in probe.replace(" ", "").lower(),
+    }
 
 
 def _normalize_alert_row(d: dict) -> dict:
@@ -98,26 +140,7 @@ async def get_red_zone_alerts(limit: int = Query(default=10, ge=1, le=100)):
             ),
         )
 
-    # Columns must match physical table (see BigQuery Schema tab)
-    query = f"""
-        SELECT
-            run_timestamp,
-            alert_date,
-            alert_hour,
-            campaign_id,
-            campaign_name,
-            ad_group_id,
-            ad_group_name,
-            current_cpc,
-            threshold_used,
-            cost,
-            clicks,
-            impressions,
-            notes
-        FROM `{full_table}`
-        ORDER BY run_timestamp DESC, current_cpc DESC
-        LIMIT @limit
-    """
+    query = _alerts_sql(full_table)
     job_config = bigquery.QueryJobConfig(
         query_parameters=[bigquery.ScalarQueryParameter("limit", "INT64", limit)]
     )
