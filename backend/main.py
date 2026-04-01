@@ -18,6 +18,22 @@ from typing import Optional
 
 app = FastAPI(title="Printerpix CPC Guardrail API")
 
+
+@app.get("/")
+async def root():
+    """Railway smoke test — if this 404s, this public URL is not running this FastAPI app."""
+    return {
+        "service": "printerpix-cpc-guardrail-api",
+        "build": "2026-03-31-root-v8",
+        "endpoints": {
+            "health": "/health",
+            "version": "/version",
+            "alerts": "/alerts",
+            "docs": "/docs",
+        },
+    }
+
+
 # --- BigQuery table: printerpix-general.GA_Avanish.CPC_Anomaly_Alerts ---
 PROJECT_ID = os.getenv("PROJECT_ID", "").strip()
 TABLE = os.getenv("TABLE", "").strip()
@@ -105,7 +121,7 @@ async def version():
     probe = _alerts_sql("project.dataset.table")
     return {
         "api": "cpc-guardrail",
-        "build": "2026-03-31-diagnostic-v7",
+        "build": "2026-03-31-diagnostic-v8",
         "git_commit": os.getenv("RAILWAY_GIT_COMMIT_SHA", ""),
         "git_branch": os.getenv("RAILWAY_GIT_BRANCH", ""),
         "resolved_bq_table": resolve_full_table_id(),
