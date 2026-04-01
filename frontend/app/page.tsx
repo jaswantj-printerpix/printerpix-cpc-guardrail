@@ -38,6 +38,16 @@ export interface Alert {
   cost: number;
   clicks: number;
   stat_threshold?: number | null;
+  /** From BQ `CPC_Spike_Percent` — preferred for “CPC Spike %”. */
+  cpc_spike_percent?: number | null;
+  average_cpc?: number | null;
+  cpc_vs_threshold?: number | null;
+  ctr?: number | null;
+  /** From BQ `Money_Bleeding` — preferred for bleed KPIs / heat column. */
+  money_bleeding?: number | null;
+  record_count?: number | null;
+  /** Legacy alias if a future table still sends this name. */
+  percent_above_baseline?: number | null;
   baseline_mean?: number | null;
   max_allowable_cpc?: number | null;
   dynamic_conv_rate?: number | null;

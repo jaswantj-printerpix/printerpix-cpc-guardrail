@@ -2,7 +2,7 @@
 
 import type { CSSProperties } from "react";
 import type { Alert } from "../page";
-import { cpcSpikeVsThresholdPercent } from "../lib/cpcMetrics";
+import { displayCpcSpikePercent, moneyBleedingAmount } from "../lib/cpcMetrics";
 
 function heatMapStyle(cost: number, min: number, max: number): CSSProperties {
   if (max === min) {
@@ -20,9 +20,9 @@ function heatMapStyle(cost: number, min: number, max: number): CSSProperties {
 }
 
 export default function RedZoneTable({ alerts }: { alerts: Alert[] }) {
-  const costs = alerts.map((a) => a.cost ?? 0);
-  const minCost = costs.length ? Math.min(...costs) : 0;
-  const maxCost = costs.length ? Math.max(...costs) : 0;
+  const bleedValues = alerts.map((a) => moneyBleedingAmount(a));
+  const minBleed = bleedValues.length ? Math.min(...bleedValues) : 0;
+  const maxBleed = bleedValues.length ? Math.max(...bleedValues) : 0;
 
   if (alerts.length === 0) {
     return (
@@ -64,13 +64,17 @@ export default function RedZoneTable({ alerts }: { alerts: Alert[] }) {
               </td>
               <td
                 className="border-t border-[var(--border-subtle)] px-3 py-2 text-right tabular-nums"
-                style={heatMapStyle(a.cost ?? 0, minCost, maxCost)}
+                style={heatMapStyle(
+                  moneyBleedingAmount(a),
+                  minBleed,
+                  maxBleed
+                )}
               >
-                £{(a.cost ?? 0).toFixed(2)}
+                £{moneyBleedingAmount(a).toFixed(2)}
               </td>
               <td className="border-t border-[var(--border-subtle)] px-3 py-2 text-right tabular-nums">
                 {(() => {
-                  const p = cpcSpikeVsThresholdPercent(a);
+                  const p = displayCpcSpikePercent(a);
                   return p == null ? "—" : `${p.toFixed(2)}%`;
                 })()}
               </td>

@@ -11,6 +11,7 @@ import {
   Cell,
 } from "recharts";
 import type { Alert } from "../page";
+import { moneyBleedingAmount } from "../lib/cpcMetrics";
 
 function heatColor(t: number): string {
   const r = Math.round(34 + t * (220 - 34));
@@ -23,7 +24,7 @@ export default function BleedBarChart({ alerts }: { alerts: Alert[] }) {
   const byCampaign = new Map<string, number>();
   for (const a of alerts) {
     const c = a.campaign_name ?? "";
-    byCampaign.set(c, (byCampaign.get(c) ?? 0) + (a.cost ?? 0));
+    byCampaign.set(c, (byCampaign.get(c) ?? 0) + moneyBleedingAmount(a));
   }
   const rows = [...byCampaign.entries()]
     .map(([name, bleed]) => ({ name, bleed }))

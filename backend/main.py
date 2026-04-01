@@ -1,10 +1,9 @@
 """
 CPC Guardrail API — reads anomaly alerts from BigQuery table
-  printerpix-general.GA_Avanish.CPC_Anomaly_Alerts
+  printerpix-general.GA_Avanish.CPC_Alerts_Updated
 
-Table schema: run_timestamp, alert_date, alert_hour, campaign_id, campaign_name,
-ad_group_id, ad_group_name, current_cpc, threshold_used, cost, clicks,
-impressions, notes.
+Schema matches GA_Avanish.CPC_Alerts_Updated: base columns plus Average_CPC,
+CPC_vs_Threshold, CPC_Spike_Percent, CTR, Money_Bleeding, Record_Count (exposed as snake_case JSON).
 """
 
 from __future__ import annotations
@@ -24,7 +23,7 @@ async def root():
     """Railway smoke test — if this 404s, this public URL is not running this FastAPI app."""
     return {
         "service": "printerpix-cpc-guardrail-api",
-        "build": "2026-03-31-root-v8",
+        "build": "2026-04-01-cpc-alerts-updated",
         "endpoints": {
             "health": "/health",
             "version": "/version",
@@ -34,7 +33,7 @@ async def root():
     }
 
 
-# --- BigQuery table: printerpix-general.GA_Avanish.CPC_Anomaly_Alerts ---
+# --- BigQuery table: printerpix-general.GA_Avanish.CPC_Alerts_Updated ---
 PROJECT_ID = os.getenv("PROJECT_ID", "").strip()
 TABLE = os.getenv("TABLE", "").strip()
 BIGQUERY_TABLE = os.getenv("BIGQUERY_TABLE", "").strip()
@@ -74,29 +73,10 @@ if creds_json:
 
 _bq_client: Optional[bigquery.Client] = None
 
-# /alerts BigQuery SELECT list — must stay in sync with table schema (no legacy column names).
-ALERTS_SELECT_COLUMNS: tuple[str, ...] = (
-    "run_timestamp",
-    "alert_date",
-    "alert_hour",
-    "campaign_id",
-    "campaign_name",
-    "ad_group_id",
-    "ad_group_name",
-    "current_cpc",
-    "threshold_used",
-    "cost",
-    "clicks",
-    "impressions",
-    "notes",
-)
-
-
 def _alerts_sql(full_table: str) -> str:
-    cols = ",\n            ".join(ALERTS_SELECT_COLUMNS)
+    # SELECT * keeps the API aligned with CPC_Alerts_Updated as you add materialized fields.
     return f"""
-        SELECT
-            {cols}
+        SELECT *
         FROM `{full_table}`
         ORDER BY run_timestamp DESC, current_cpc DESC
         LIMIT @limit
@@ -114,32 +94,58 @@ def get_bq_client() -> bigquery.Client:
 
 @app.get("/version")
 async def version():
-    """
-    Use this to verify Railway/Vercel are hitting the API you think.
-    If `alerts_sql_includes_percent_above_baseline` is true, you are NOT on current code.
-    """
-    probe = _alerts_sql("project.dataset.table")
+    """Use this to verify Railway/Vercel are hitting the API you think."""
     return {
         "api": "cpc-guardrail",
-        "build": "2026-03-31-diagnostic-v8",
+        "build": "2026-04-01-diagnostic-cpc-alerts-updated",
         "git_commit": os.getenv("RAILWAY_GIT_COMMIT_SHA", ""),
         "git_branch": os.getenv("RAILWAY_GIT_BRANCH", ""),
         "resolved_bq_table": resolve_full_table_id(),
-        "alerts_select_columns": list(ALERTS_SELECT_COLUMNS),
-        "alerts_sql_includes_percent_above_baseline": "percent_above_baseline"
-        in probe.replace(" ", "").lower(),
+        "alerts_query": "SELECT * … ORDER BY run_timestamp DESC, current_cpc DESC",
     }
 
 
 def _normalize_alert_row(d: dict) -> dict:
-    """Map BigQuery row → frontend Alert shape."""
+    """Map BigQuery row → stable JSON for the dashboard (snake_case API keys)."""
     d = dict(d)
     d["alert_reason"] = d.get("notes")
     d["timestamp"] = d.get("run_timestamp")
     d["stat_threshold"] = d.get("threshold_used")
-    d["baseline_mean"] = None
-    d["max_allowable_cpc"] = None
-    d["dynamic_conv_rate"] = None
+
+    # CPC_Alerts_Updated uses Looker-style names in BigQuery
+    bq_to_api = (
+        ("Average_CPC", "average_cpc"),
+        ("CPC_vs_Threshold", "cpc_vs_threshold"),
+        ("CPC_Spike_Percent", "cpc_spike_percent"),
+        ("CTR", "ctr"),
+        ("Money_Bleeding", "money_bleeding"),
+        ("Record_Count", "record_count"),
+    )
+    for bq_key, api_key in bq_to_api:
+        if bq_key in d:
+            val = d.pop(bq_key)
+            if val is not None:
+                d[api_key] = val
+
+    for redundant in ("notes", "run_timestamp", "threshold_used"):
+        d.pop(redundant, None)
+
+    optional = (
+        "baseline_mean",
+        "max_allowable_cpc",
+        "dynamic_conv_rate",
+        "percent_above_baseline",
+        "average_cpc",
+        "cpc_vs_threshold",
+        "cpc_spike_percent",
+        "ctr",
+        "money_bleeding",
+        "record_count",
+    )
+    for key in optional:
+        if key in d and d.get(key) is None:
+            del d[key]
+
     return d
 
 
@@ -151,7 +157,7 @@ async def get_red_zone_alerts(limit: int = Query(default=10, ge=1, le=100)):
             status_code=503,
             detail=(
                 "BigQuery table not configured. Set BIGQUERY_TABLE="
-                "printerpix-general.GA_Avanish.CPC_Anomaly_Alerts "
+                "printerpix-general.GA_Avanish.CPC_Alerts_Updated "
                 "or PROJECT_ID + TABLE."
             ),
         )

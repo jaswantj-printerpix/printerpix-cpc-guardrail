@@ -1,13 +1,13 @@
 "use client";
 
 import type { Alert } from "../page";
-import { cpcSpikeVsThresholdPercent } from "../lib/cpcMetrics";
+import { displayCpcSpikePercent, moneyBleedingAmount } from "../lib/cpcMetrics";
 
 export default function SummaryCards({ alerts }: { alerts: Alert[] }) {
   const totalAlerts = alerts.length;
 
   const spikeValues = alerts
-    .map((a) => cpcSpikeVsThresholdPercent(a))
+    .map((a) => displayCpcSpikePercent(a))
     .filter((v): v is number => v != null && !Number.isNaN(v));
   const avgSpike =
     spikeValues.length > 0
@@ -15,7 +15,7 @@ export default function SummaryCards({ alerts }: { alerts: Alert[] }) {
       : 0;
 
   const totalMoneyBleeding = alerts.reduce(
-    (sum, a) => sum + (a.cost ?? 0),
+    (sum, a) => sum + moneyBleedingAmount(a),
     0
   );
 
