@@ -2,6 +2,7 @@
 
 import type { CSSProperties } from "react";
 import type { Alert } from "../page";
+import { cpcSpikeVsThresholdPercent } from "../lib/cpcMetrics";
 
 function heatMapStyle(cost: number, min: number, max: number): CSSProperties {
   if (max === min) {
@@ -68,7 +69,10 @@ export default function RedZoneTable({ alerts }: { alerts: Alert[] }) {
                 £{(a.cost ?? 0).toFixed(2)}
               </td>
               <td className="border-t border-[var(--border-subtle)] px-3 py-2 text-right tabular-nums">
-                {(a.percent_above_baseline ?? 0).toFixed(2)}%
+                {(() => {
+                  const p = cpcSpikeVsThresholdPercent(a);
+                  return p == null ? "—" : `${p.toFixed(2)}%`;
+                })()}
               </td>
               <td className="border-t border-[var(--border-subtle)] px-3 py-2 text-right tabular-nums">
                 £{(a.current_cpc ?? 0).toFixed(2)}

@@ -2,10 +2,9 @@
 CPC Guardrail API — reads anomaly alerts from BigQuery table
   printerpix-general.GA_Avanish.CPC_Anomaly_Alerts
 
-Table schema (see BigQuery console): run_timestamp, alert_date, alert_hour,
-campaign_id, campaign_name, ad_group_id, ad_group_name, current_cpc,
-threshold_used, cost, clicks, impressions, notes
-(no baseline_mean / percent_above_baseline columns — derived in API).
+Table schema: run_timestamp, alert_date, alert_hour, campaign_id, campaign_name,
+ad_group_id, ad_group_name, current_cpc, threshold_used, cost, clicks,
+impressions, notes.
 """
 
 from __future__ import annotations
@@ -69,23 +68,9 @@ def get_bq_client() -> bigquery.Client:
     return _bq_client
 
 
-def _spike_pct_vs_threshold(current_cpc: object, threshold_used: object) -> Optional[float]:
-    """% above threshold_used (UI field still named percent_above_baseline)."""
-    if current_cpc is None or threshold_used is None:
-        return None
-    try:
-        c = float(current_cpc)
-        t = float(threshold_used)
-        if t > 0:
-            return round((c - t) / t * 100, 1)
-    except (TypeError, ValueError):
-        pass
-    return None
-
-
 @app.get("/version")
 async def version():
-    return {"api": "cpc-guardrail", "build": "2026-03-31-bq-schema-v5"}
+    return {"api": "cpc-guardrail", "build": "2026-03-31-no-pct-field-v6"}
 
 
 def _normalize_alert_row(d: dict) -> dict:
@@ -93,14 +78,10 @@ def _normalize_alert_row(d: dict) -> dict:
     d = dict(d)
     d["alert_reason"] = d.get("notes")
     d["timestamp"] = d.get("run_timestamp")
-    # Table column is threshold_used; dashboard expects stat_threshold
     d["stat_threshold"] = d.get("threshold_used")
     d["baseline_mean"] = None
     d["max_allowable_cpc"] = None
     d["dynamic_conv_rate"] = None
-    d["percent_above_baseline"] = _spike_pct_vs_threshold(
-        d.get("current_cpc"), d.get("threshold_used")
-    )
     return d
 
 

@@ -37,11 +37,10 @@ export interface Alert {
   timestamp: string;
   cost: number;
   clicks: number;
-  percent_above_baseline: number;
-  baseline_mean: number;
-  stat_threshold: number;
-  max_allowable_cpc: number;
-  dynamic_conv_rate: number;
+  stat_threshold?: number | null;
+  baseline_mean?: number | null;
+  max_allowable_cpc?: number | null;
+  dynamic_conv_rate?: number | null;
 }
 
 export interface TrendPoint {
